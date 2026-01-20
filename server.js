@@ -5,31 +5,30 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// 👉 CHO PHÉP LOAD FILE HTML
-app.use(express.static(__dirname));
-
 const KEY_FILE = path.join(__dirname, "keys.json");
 
 // tạo file keys.json nếu chưa có
 if (!fs.existsSync(KEY_FILE)) {
-  fs.writeFileSync(KEY_FILE, JSON.stringify([]));
+  fs.writeFileSync(KEY_FILE, "[]");
 }
 
-// test server
+// trang chủ test
 app.get("/", (req, res) => {
-  res.send("✅ KEY SERVER ONLINE");
+  res.send("KEY SERVER ONLINE");
 });
 
-// check key
+// kiểm tra key (bot gọi)
 app.post("/check", (req, res) => {
   const { key, device } = req.body;
   const keys = JSON.parse(fs.readFileSync(KEY_FILE));
 
   const found = keys.find(k => k.key === key);
-  if (!found) return res.json({ ok: false, msg: "Key không tồn tại" });
+  if (!found) return res.json({ ok: false });
 
-  if (found.device && found.device !== device)
-    return res.json({ ok: false, msg: "Key đã gắn máy khác" });
+  // khóa theo thiết bị
+  if (found.device && found.device !== device) {
+    return res.json({ ok: false });
+  }
 
   if (!found.device) {
     found.device = device;
@@ -42,7 +41,10 @@ app.post("/check", (req, res) => {
 // tạo key
 app.post("/create", (req, res) => {
   const { key, type } = req.body;
+  if (!key || !type) return res.json({ ok: false });
+
   const keys = JSON.parse(fs.readFileSync(KEY_FILE));
+
   keys.push({
     id: Date.now(),
     key,
@@ -50,6 +52,7 @@ app.post("/create", (req, res) => {
     time: new Date().toLocaleString("vi-VN"),
     device: null
   });
+
   fs.writeFileSync(KEY_FILE, JSON.stringify(keys, null, 2));
   res.json({ ok: true });
 });
@@ -61,6 +64,11 @@ app.post("/delete", (req, res) => {
   keys = keys.filter(k => k.id !== id);
   fs.writeFileSync(KEY_FILE, JSON.stringify(keys, null, 2));
   res.json({ ok: true });
+});
+
+// admin panel
+app.get("/admin.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "admin.html"));
 });
 
 const PORT = process.env.PORT || 3000;
