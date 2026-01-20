@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>ADMIN KEY BOT</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{background:#000;color:#00ff66;font-family:monospace}
+.box{max-width:420px;margin:auto;border:2px solid #00ff66;padding:15px}
+input,button{width:100%;padding:10px;margin:6px 0;background:#000;border:1px solid #00ff66;color:#00ff66}
+.key{border:1px dashed #00ff66;padding:8px;margin:6px 0;font-size:13px}
+.danger{border-color:#ff4444;color:#ff4444}
+</style>
+</head>
+<body>
+
+<div class="box">
+<h2>🔑 ADMIN KEY BOT</h2>
+
+<input id="days" type="number" placeholder="Số ngày dùng (0 = vĩnh viễn)">
+<button onclick="createKey()">➕ TẠO KEY</button>
+
+<div id="list"></div>
+</div>
+
+<script>
+const SERVER = "https://admin-key-sever.onrender.com";
+
+async function createKey(){
+  const days = Number(document.getElementById("days").value||0);
+  const res = await fetch(SERVER+"/admin/create",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({days})
+  });
+  const data = await res.json();
+  alert("Đã tạo key: "+data.key);
+  loadKeys();
+}
+
+async function deleteKey(key){
+  if(!confirm("Xóa key "+key+"?"))return;
+  await fetch(SERVER+"/admin/delete",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({key})
+  });
+  loadKeys();
+}
+
+async function loadKeys(){
+  const res = await fetch(SERVER+"/admin/keys");
+  const keys = await res.json();
+  const box = document.getElementById("list");
+  box.innerHTML="";
+  keys.forEach(k=>{
+    box.innerHTML+=`
+      <div class="key">
+        <b>${k.key}</b><br>
+        Tạo: ${new Date(k.created).toLocaleString()}<br>
+        Hết hạn: ${k.expire ? new Date(k.expire).toLocaleString() : "Vĩnh viễn"}
+        <button class="danger" onclick="deleteKey('${k.key}')">X</button>
+      </div>`;
+  });
+}
+
+loadKeys();
+</script>
+</body>
+</html>
