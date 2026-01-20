@@ -1,1 +1,10 @@
-[]
+{
+  "ABC123": {
+    "type": "VIP",
+    "device": null
+  },
+  "FREE999": {
+    "type": "FREE",
+    "device": null
+  }
+}
