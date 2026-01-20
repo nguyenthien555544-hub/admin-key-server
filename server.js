@@ -1,81 +1,66 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8">
-<title>ADMIN KEY</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-body{background:#000;color:#00ff66;font-family:monospace}
-.box{max-width:450px;margin:auto;border:2px solid #00ff66;padding:12px}
-input,select,button{width:100%;padding:10px;margin:6px 0;background:#000;color:#00ff66;border:1px solid #00ff66}
-.key{display:flex;justify-content:space-between;margin:5px 0;font-size:13px}
-small{opacity:.8}
-</style>
-</head>
-<body>
+const express = require("express");
+const fs = require("fs");
+const cors = require("cors");
 
-<div class="box">
-<h3>🔑 ADMIN KEY</h3>
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-<input id="key" placeholder="Key">
-<select id="type">
-<option value="FREE">FREE (1 ngày)</option>
-<option value="VIP">VIP (Vĩnh viễn)</option>
-</select>
+const DB = "./keys.json";
 
-<button onclick="create()">➕ TẠO KEY</button>
+function load(){
+  if(!fs.existsSync(DB)) fs.writeFileSync(DB,"{}");
+  return JSON.parse(fs.readFileSync(DB));
+}
+function save(d){ fs.writeFileSync(DB, JSON.stringify(d,null,2)); }
 
-<div id="list">Loading...</div>
-</div>
+/* ===== CHECK KEY ===== */
+app.post("/check",(req,res)=>{
+  const { key, device } = req.body;
+  const db = load();
+  const k = db[key];
 
-<script>
-const SERVER="https://admin-key-server.onrender.com";
+  if(!k) return res.json({ok:false,msg:"Key không tồn tại"});
+  if(Date.now() > k.expire) return res.json({ok:false,msg:"Key đã hết hạn"});
+  if(k.device && k.device !== device)
+    return res.json({ok:false,msg:"Key đã gắn máy khác"});
 
-async function load(){
-  const res = await fetch(SERVER+"/admin/keys");
-  const d = await res.json();
-  let html="";
-  for(let k in d){
-    const e = d[k].expire
-      ? new Date(d[k].expire).toLocaleString()
-      : "VĨNH VIỄN";
-    html+=`
-    <div class="key">
-      <div>
-        <b>${k}</b><br>
-        <small>${d[k].type} | ${e}</small><br>
-        <small>ID: ${d[k].device||"CHƯA GẮN"}</small>
-      </div>
-      <button onclick="del('${k}')">❌</button>
-    </div>`;
+  if(!k.device){
+    k.device = device;
+    save(db);
   }
-  list.innerHTML = html || "Chưa có key";
-}
 
-async function create(){
-  if(!key.value) return alert("Nhập key");
-  const res = await fetch(SERVER+"/admin/create",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ key:key.value, type:type.value })
+  res.json({
+    ok:true,
+    type:k.type,
+    expire:k.expire
   });
-  const d = await res.json();
-  if(!d.ok) return alert(d.msg);
-  key.value="";
-  load();
-}
+});
 
-async function del(k){
-  if(!confirm("Xóa "+k+"?")) return;
-  await fetch(SERVER+"/admin/delete",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ key:k })
-  });
-  load();
-}
+/* ===== ADMIN ===== */
+app.get("/admin/keys",(req,res)=>{
+  res.json(load());
+});
 
-load();
-</script>
-</body>
-</html>
+app.post("/admin/create",(req,res)=>{
+  const { key, type, days } = req.body;
+  const db = load();
+  if(db[key]) return res.json({ok:false,msg:"Key đã tồn tại"});
+
+  db[key] = {
+    type,
+    expire: Date.now() + days*86400000,
+    device: ""
+  };
+  save(db);
+  res.json({ok:true});
+});
+
+app.post("/admin/delete",(req,res)=>{
+  const db = load();
+  delete db[req.body.key];
+  save(db);
+  res.json({ok:true});
+});
+
+app.listen(3000,()=>console.log("SERVER KEY RUNNING"));
