@@ -6,84 +6,37 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
 const KEY_FILE = "./keys.json";
+const GAME_FILE = "./game.json";
+const ADMIN_SECRET = "GACON46_SECRET";
 
-/* ================= LOAD / SAVE ================= */
-function loadKeys() {
-  if (!fs.existsSync(KEY_FILE)) return {};
-  return JSON.parse(fs.readFileSync(KEY_FILE, "utf8"));
+/* ===== UTIL ===== */
+function load(file, def) {
+  if (!fs.existsSync(file)) return def;
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
-function saveKeys(data) {
-  fs.writeFileSync(KEY_FILE, JSON.stringify(data, null, 2));
+function save(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-let keys = loadKeys();
+/* ===== LOAD DATA ===== */
+let keys = load(KEY_FILE, {});
+let game = load(GAME_FILE, { round: 0, result: [], time: 0 });
 
-/* ================= ROOT ================= */
-app.get("/", (req, res) => {
-  res.send("✅ ADMIN KEY SERVER RUNNING");
-});
-
-/* ================= CREATE KEY (ADMIN) =================
-BODY:
-{
-  "key": "ABC123",        // optional
-  "type": "FREE" | "VIP",
-  "days": 7,
-  "device": "DEV-xxxx"
-}
-*/
-app.post("/create", (req, res) => {
-  const { key, type, days, device } = req.body;
-
-  if (!type || !days || !device) {
-    return res.json({ ok: false, msg: "Thiếu dữ liệu" });
-  }
-
-  const k =
-    key ||
-    "KEY-" + Math.random().toString(36).slice(2, 10).toUpperCase();
-
-  keys[k] = {
-    type,
-    device,
-    expire: Date.now() + days * 86400000,
-    created: Date.now()
-  };
-
-  saveKeys(keys);
-
-  res.json({
-    ok: true,
-    key: k,
-    type,
-    device,
-    expire: keys[k].expire
-  });
-});
-
-/* ================= CHECK KEY (BOT) =================
-BODY:
-{
-  "key": "ABC123",
-  "device": "DEV-xxxx"
-}
-*/
+/* ===== CHECK KEY ===== */
 app.post("/check", (req, res) => {
   const { key, device } = req.body;
+  if (!keys[key]) return res.json({ ok: false, msg: "Key không tồn tại" });
+
   const k = keys[key];
+  if (Date.now() > k.expire) return res.json({ ok: false, msg: "Key hết hạn" });
 
-  if (!k) {
-    return res.json({ ok: false, msg: "Key không tồn tại" });
-  }
+  if (k.device && k.device !== device)
+    return res.json({ ok: false, msg: "Key đã gắn thiết bị khác" });
 
-  if (Date.now() > k.expire) {
-    return res.json({ ok: false, msg: "Key đã hết hạn" });
-  }
-
-  if (k.device !== device) {
-    return res.json({ ok: false, msg: "Key không đúng thiết bị" });
+  if (!k.device) {
+    k.device = device;
+    save(KEY_FILE, keys);
   }
 
   res.json({
@@ -93,23 +46,41 @@ app.post("/check", (req, res) => {
   });
 });
 
-/* ================= LIST KEYS (ADMIN) ================= */
-app.get("/keys", (req, res) => {
-  res.json(keys);
-});
+/* ===== ADMIN CREATE KEY ===== */
+app.post("/admin/create", (req, res) => {
+  if (req.headers["x-secret"] !== ADMIN_SECRET)
+    return res.status(403).json({ ok: false });
 
-/* ================= DELETE KEY (ADMIN) ================= */
-app.post("/delete", (req, res) => {
-  const { key } = req.body;
-  if (!keys[key]) {
-    return res.json({ ok: false, msg: "Key không tồn tại" });
-  }
-  delete keys[key];
-  saveKeys(keys);
+  const { key, type, days } = req.body;
+  if (!key || !days) return res.json({ ok: false });
+
+  keys[key] = {
+    type: type || "FREE",
+    expire: Date.now() + days * 86400000,
+    device: null
+  };
+  save(KEY_FILE, keys);
   res.json({ ok: true });
 });
 
-/* ================= START ================= */
-app.listen(PORT, () => {
-  console.log("✅ Server running on port", PORT);
+/* ===== GAME API ===== */
+app.post("/game/update", (req, res) => {
+  if (req.headers["x-secret"] !== ADMIN_SECRET)
+    return res.status(403).json({ ok: false });
+
+  const { round, result } = req.body;
+  if (!round || !Array.isArray(result))
+    return res.json({ ok: false });
+
+  game = { round, result, time: Date.now() };
+  save(GAME_FILE, game);
+  res.json({ ok: true });
 });
+
+app.get("/game", (req, res) => {
+  res.json(game);
+});
+
+/* ===== START ===== */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("SERVER RUN", PORT));
