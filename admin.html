@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>ADMIN PANEL</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{background:#000;color:#00ff66;font-family:monospace}
+.app{max-width:420px;margin:auto;padding:15px;border:2px solid #00ff66}
+input,select,button{
+ width:100%;padding:10px;margin:8px 0;
+ background:#000;border:1px solid #00ff66;color:#00ff66
+}
+button{cursor:pointer}
+.log{border:1px dashed #00ff66;padding:8px;margin-top:10px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="app">
+<h2>🔑 ADMIN PANEL</h2>
+
+<input id="device" placeholder="Device ID">
+<select id="type">
+ <option value="FREE">FREE</option>
+ <option value="VIP">VIP</option>
+</select>
+<input id="days" type="number" placeholder="Số ngày (0 = vĩnh viễn)">
+<button onclick="createKey()">➕ TẠO KEY</button>
+
+<div class="log" id="log">Sẵn sàng</div>
+</div>
+
+<script>
+const SERVER = location.origin;
+const ADMIN_KEY = "ADMIN-123456"; // PHẢI TRÙNG server
+
+async function createKey(){
+ const device = document.getElementById("device").value.trim();
+ const type = document.getElementById("type").value;
+ const days = document.getElementById("days").value || 0;
+ const log = document.getElementById("log");
+
+ if(!device) return alert("Thiếu Device ID");
+
+ log.innerText = "Đang tạo key...";
+
+ try{
+  const res = await fetch(SERVER + "/admin/create-key", {
+   method: "POST",
+   headers:{
+    "Content-Type":"application/json",
+    "x-admin-key": ADMIN_KEY
+   },
+   body: JSON.stringify({ device, type, days })
+  });
+
+  const data = await res.json();
+  if(!data.ok) return log.innerText = "❌ " + data.msg;
+
+  log.innerHTML =
+   `✅ TẠO THÀNH CÔNG<br>
+    🔑 KEY: <b>${data.key}</b><br>
+    ⏳ HẾT HẠN: ${data.expire==0?"Vĩnh viễn":new Date(data.expire).toLocaleString()}`;
+ }catch(e){
+  log.innerText = "❌ Lỗi server";
+ }
+}
+</script>
+</body>
+</html>
