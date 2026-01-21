@@ -1,102 +1,115 @@
 const express = require("express");
 const fs = require("fs");
 const cors = require("cors");
-const path = require("path");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static("public"));
 
-/* ================= CONFIG ================= */
 const PORT = process.env.PORT || 3000;
 const KEY_FILE = "./keys.json";
-const ADMIN_KEY = "ADMIN-123456"; // 🔴 đổi key admin tại đây
 
-/* ================= UTILS ================= */
+/* ================= LOAD / SAVE ================= */
 function loadKeys() {
- if (!fs.existsSync(KEY_FILE)) return [];
- return JSON.parse(fs.readFileSync(KEY_FILE));
+  if (!fs.existsSync(KEY_FILE)) return {};
+  return JSON.parse(fs.readFileSync(KEY_FILE, "utf8"));
 }
-
 function saveKeys(data) {
- fs.writeFileSync(KEY_FILE, JSON.stringify(data, null, 2));
+  fs.writeFileSync(KEY_FILE, JSON.stringify(data, null, 2));
 }
 
-/* ================= ADMIN AUTH ================= */
-function checkAdmin(req, res, next) {
- const k = req.headers["x-admin-key"];
- if (k !== ADMIN_KEY) {
-  return res.json({ ok: false, msg: "No permission" });
- }
- next();
-}
+let keys = loadKeys();
 
-/* ================= ADMIN CREATE KEY ================= */
-app.post("/admin/create-key", checkAdmin, (req, res) => {
- const { device, type, days } = req.body;
- if (!device) return res.json({ ok: false, msg: "Thiếu Device ID" });
-
- const keys = loadKeys();
- const key = "KEY-" + Math.random().toString(36).slice(2, 10);
-
- let expire = 0;
- if (Number(days) > 0) {
-  expire = Date.now() + Number(days) * 86400000;
- }
-
- keys.push({
-  key,
-  device,
-  type: type || "FREE",
-  expire
- });
-
- saveKeys(keys);
- res.json({ ok: true, key, expire });
-});
-
-/* ================= ADMIN LIST ================= */
-app.get("/admin/list", checkAdmin, (req, res) => {
- res.json(loadKeys());
-});
-
-/* ================= ADMIN DELETE ================= */
-app.get("/admin/delete/:key", checkAdmin, (req, res) => {
- let keys = loadKeys();
- keys = keys.filter(k => k.key !== req.params.key);
- saveKeys(keys);
- res.json({ ok: true });
-});
-
-/* ================= BOT CHECK API ================= */
-app.post("/check", (req, res) => {
- const { key, device } = req.body;
- if (!key || !device) {
-  return res.json({ ok: false, msg: "Thiếu dữ liệu" });
- }
-
- const keys = loadKeys();
- const found = keys.find(k => k.key === key);
-
- if (!found) return res.json({ ok: false, msg: "Key sai" });
- if (found.device !== device) return res.json({ ok: false, msg: "Sai device" });
- if (found.expire !== 0 && Date.now() > found.expire)
-  return res.json({ ok: false, msg: "Key hết hạn" });
-
- res.json({
-  ok: true,
-  type: found.type,
-  expire: found.expire
- });
-});
-
-/* ================= ADMIN PANEL ================= */
+/* ================= ROOT ================= */
 app.get("/", (req, res) => {
- res.sendFile(path.join(__dirname, "public/admin.html"));
+  res.send("✅ ADMIN KEY SERVER RUNNING");
+});
+
+/* ================= CREATE KEY (ADMIN) =================
+BODY:
+{
+  "key": "ABC123",        // optional
+  "type": "FREE" | "VIP",
+  "days": 7,
+  "device": "DEV-xxxx"
+}
+*/
+app.post("/create", (req, res) => {
+  const { key, type, days, device } = req.body;
+
+  if (!type || !days || !device) {
+    return res.json({ ok: false, msg: "Thiếu dữ liệu" });
+  }
+
+  const k =
+    key ||
+    "KEY-" + Math.random().toString(36).slice(2, 10).toUpperCase();
+
+  keys[k] = {
+    type,
+    device,
+    expire: Date.now() + days * 86400000,
+    created: Date.now()
+  };
+
+  saveKeys(keys);
+
+  res.json({
+    ok: true,
+    key: k,
+    type,
+    device,
+    expire: keys[k].expire
+  });
+});
+
+/* ================= CHECK KEY (BOT) =================
+BODY:
+{
+  "key": "ABC123",
+  "device": "DEV-xxxx"
+}
+*/
+app.post("/check", (req, res) => {
+  const { key, device } = req.body;
+  const k = keys[key];
+
+  if (!k) {
+    return res.json({ ok: false, msg: "Key không tồn tại" });
+  }
+
+  if (Date.now() > k.expire) {
+    return res.json({ ok: false, msg: "Key đã hết hạn" });
+  }
+
+  if (k.device !== device) {
+    return res.json({ ok: false, msg: "Key không đúng thiết bị" });
+  }
+
+  res.json({
+    ok: true,
+    type: k.type,
+    expire: k.expire
+  });
+});
+
+/* ================= LIST KEYS (ADMIN) ================= */
+app.get("/keys", (req, res) => {
+  res.json(keys);
+});
+
+/* ================= DELETE KEY (ADMIN) ================= */
+app.post("/delete", (req, res) => {
+  const { key } = req.body;
+  if (!keys[key]) {
+    return res.json({ ok: false, msg: "Key không tồn tại" });
+  }
+  delete keys[key];
+  saveKeys(keys);
+  res.json({ ok: true });
 });
 
 /* ================= START ================= */
 app.listen(PORT, () => {
- console.log("SERVER RUNNING PORT " + PORT);
+  console.log("✅ Server running on port", PORT);
 });
