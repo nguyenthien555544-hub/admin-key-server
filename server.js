@@ -1,34 +1,50 @@
-const express = require("express");
-const fs = require("fs");
-const cors = require("cors");
+import express from "express";
+import fs from "fs";
+import cors from "cors";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const DB = "./keys.json";
+/* ===== FILE DATA ===== */
+const KEY_FILE = "./keys.json";
+const GAME_FILE = "./game.json";
 
-function load(){
-  if(!fs.existsSync(DB)) fs.writeFileSync(DB, "{}");
-  return JSON.parse(fs.readFileSync(DB));
+function loadKeys(){
+  if(!fs.existsSync(KEY_FILE)) fs.writeFileSync(KEY_FILE,"{}");
+  return JSON.parse(fs.readFileSync(KEY_FILE));
 }
-function save(d){ fs.writeFileSync(DB, JSON.stringify(d,null,2)); }
+function saveKeys(d){
+  fs.writeFileSync(KEY_FILE,JSON.stringify(d,null,2));
+}
+function loadGame(){
+  if(!fs.existsSync(GAME_FILE)) fs.writeFileSync(GAME_FILE,"{}");
+  return JSON.parse(fs.readFileSync(GAME_FILE));
+}
+function saveGame(d){
+  fs.writeFileSync(GAME_FILE,JSON.stringify(d,null,2));
+}
 
 /* ===== CHECK KEY ===== */
 app.post("/check",(req,res)=>{
   const { key, device } = req.body;
-  const db = load();
-  if(!db[key]) return res.json({ok:false,msg:"Key không tồn tại"});
+  let keys = loadKeys();
 
-  const k = db[key];
-  if(Date.now() > k.expire) return res.json({ok:false,msg:"Key hết hạn"});
+  if(!keys[key])
+    return res.json({ok:false,msg:"Key không tồn tại"});
+
+  let k = keys[key];
+
+  if(Date.now() > k.expire)
+    return res.json({ok:false,msg:"Key đã hết hạn"});
 
   if(k.device && k.device !== device)
-    return res.json({ok:false,msg:"Key đã gắn máy khác"});
+    return res.json({ok:false,msg:"Key đã gắn thiết bị khác"});
 
-  k.device = device;
-  k.last = Date.now();
-  save(db);
+  if(!k.device){
+    k.device = device;
+    saveKeys(keys);
+  }
 
   res.json({
     ok:true,
@@ -39,31 +55,47 @@ app.post("/check",(req,res)=>{
 
 /* ===== ADMIN ===== */
 app.get("/admin/keys",(req,res)=>{
-  res.json(load());
+  res.json(loadKeys());
 });
 
 app.post("/admin/create",(req,res)=>{
-  const { key, type } = req.body;
-  const db = load();
-  if(db[key]) return res.json({ok:false,msg:"Key đã tồn tại"});
+  const { key, type, expire } = req.body;
+  let keys = loadKeys();
 
-  const day = 86400000;
-  db[key] = {
+  if(keys[key])
+    return res.json({ok:false,msg:"Key đã tồn tại"});
+
+  keys[key] = {
     type,
-    device:"",
-    create:Date.now(),
-    expire: type==="FREE" ? Date.now()+day : Date.now()+day*3650
+    expire,
+    device:null,
+    created:Date.now()
   };
-  save(db);
+
+  saveKeys(keys);
   res.json({ok:true});
 });
 
 app.post("/admin/delete",(req,res)=>{
-  const { key } = req.body;
-  const db = load();
-  delete db[key];
-  save(db);
+  let keys = loadKeys();
+  delete keys[req.body.key];
+  saveKeys(keys);
   res.json({ok:true});
 });
 
-app.listen(3000,()=>console.log("SERVER KEY RUNNING"));
+/* ===== GAME API ===== */
+app.post("/game/submit",(req,res)=>{
+  saveGame({
+    rooms:req.body.rooms,
+    time:Date.now()
+  });
+  res.json({ok:true});
+});
+
+app.get("/game/latest",(req,res)=>{
+  res.json(loadGame());
+});
+
+/* ===== START ===== */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT,()=>console.log("SERVER RUNNING",PORT));
