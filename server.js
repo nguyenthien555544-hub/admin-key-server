@@ -7,80 +7,119 @@ app.use(cors());
 app.use(express.json());
 
 const KEY_FILE = "./keys.json";
-const GAME_FILE = "./game.json";
-const ADMIN_SECRET = "GACON46_SECRET";
 
-/* ===== UTIL ===== */
-function load(file, def) {
-  if (!fs.existsSync(file)) return def;
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+/* ================= UTIL ================= */
+function loadKeys() {
+  if (!fs.existsSync(KEY_FILE)) return [];
+  return JSON.parse(fs.readFileSync(KEY_FILE));
 }
-function save(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+function saveKeys(data) {
+  fs.writeFileSync(KEY_FILE, JSON.stringify(data, null, 2));
 }
 
-/* ===== LOAD DATA ===== */
-let keys = load(KEY_FILE, {});
-let game = load(GAME_FILE, { round: 0, result: [], time: 0 });
+/* ================= CREATE KEY ================= */
+app.post("/create-key", (req, res) => {
+  const { key, type, days, device } = req.body;
+  if (!device) return res.json({ ok: false, msg: "Thiếu Device ID" });
 
-/* ===== CHECK KEY ===== */
+  const keys = loadKeys();
+  const newKey = key || "KEY-" + Math.random().toString(36).slice(2, 10);
+  const expire = Date.now() + (Number(days || 1) * 86400000);
+
+  keys.push({
+    key: newKey,
+    type: type || "FREE",
+    device,
+    expire,
+    created: Date.now()
+  });
+
+  saveKeys(keys);
+  res.json({ ok: true, key: newKey, expire });
+});
+
+/* ================= CHECK KEY (BOT) ================= */
 app.post("/check", (req, res) => {
   const { key, device } = req.body;
-  if (!keys[key]) return res.json({ ok: false, msg: "Key không tồn tại" });
+  if (!key || !device) {
+    return res.json({ ok: false, msg: "Thiếu key hoặc device" });
+  }
 
-  const k = keys[key];
-  if (Date.now() > k.expire) return res.json({ ok: false, msg: "Key hết hạn" });
+  const keys = loadKeys();
+  const found = keys.find(k => k.key === key);
+  if (!found) return res.json({ ok: false, msg: "Key không tồn tại" });
 
-  if (k.device && k.device !== device)
-    return res.json({ ok: false, msg: "Key đã gắn thiết bị khác" });
+  if (found.device !== device) {
+    return res.json({ ok: false, msg: "Sai Device ID" });
+  }
 
-  if (!k.device) {
-    k.device = device;
-    save(KEY_FILE, keys);
+  if (Date.now() > found.expire) {
+    return res.json({ ok: false, msg: "Key đã hết hạn" });
   }
 
   res.json({
     ok: true,
-    type: k.type,
-    expire: k.expire
+    type: found.type,
+    expire: found.expire
   });
 });
 
-/* ===== ADMIN CREATE KEY ===== */
-app.post("/admin/create", (req, res) => {
-  if (req.headers["x-secret"] !== ADMIN_SECRET)
-    return res.status(403).json({ ok: false });
-
-  const { key, type, days } = req.body;
-  if (!key || !days) return res.json({ ok: false });
-
-  keys[key] = {
-    type: type || "FREE",
-    expire: Date.now() + days * 86400000,
-    device: null
-  };
-  save(KEY_FILE, keys);
-  res.json({ ok: true });
+/* ================= ADMIN: LIST KEY ================= */
+app.get("/admin/keys", (req, res) => {
+  res.json(loadKeys());
 });
 
-/* ===== GAME API ===== */
-app.post("/game/update", (req, res) => {
-  if (req.headers["x-secret"] !== ADMIN_SECRET)
-    return res.status(403).json({ ok: false });
+/* ================= ADMIN: DELETE KEY ================= */
+app.post("/admin/delete", (req, res) => {
+  const { key } = req.body;
+  let keys = loadKeys();
+  const before = keys.length;
+  keys = keys.filter(k => k.key !== key);
+  saveKeys(keys);
 
-  const { round, result } = req.body;
-  if (!round || !Array.isArray(result))
-    return res.json({ ok: false });
-
-  game = { round, result, time: Date.now() };
-  save(GAME_FILE, game);
-  res.json({ ok: true });
+  res.json({
+    ok: before !== keys.length
+  });
 });
 
-app.get("/game", (req, res) => {
-  res.json(game);
+/* ================= ADMIN: EXTEND KEY ================= */
+app.post("/admin/extend", (req, res) => {
+  const { key, days } = req.body;
+  const keys = loadKeys();
+  const found = keys.find(k => k.key === key);
+  if (!found) return res.json({ ok: false });
+
+  found.expire += Number(days) * 86400000;
+  saveKeys(keys);
+  res.json({ ok: true, expire: found.expire });
 });
 
-/* ===== START ===== */
+/* ================= API TRUNG GIAN (BOT / GAME) ================= */
+app.post("/api/game", (req, res) => {
+  const { key, device, action } = req.body;
+
+  const keys = loadKeys();
+  const found = keys.find(k => k.key === key);
+  if (!found) return res.json({ ok: false });
+
+  if (found.device !== device) return res.json({ ok: false });
+  if (Date.now() > found.expire) return res.json({ ok: false });
+
+  // xử lý logic game / bot ở đây
+  res.json({
+    ok: true,
+    action,
+    vip: found.type === "VIP"
+  });
+});
+
+/* ================= ROOT ================= */
+app.get("/", (req, res) => {
+  res.send("ADMIN KEY SERVER OK");
+});
+
+/* ================= LISTEN (RENDER) ================= */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("SERVER RUN", PORT));
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
