@@ -7,48 +7,53 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const KEY_FILE = "./keys.json";
 
-/* ================= LOAD / SAVE ================= */
+/* ====== DÙNG DISK RENDER ====== */
+const DATA_DIR = "/data";
+const KEY_FILE = DATA_DIR + "/keys.json";
+
+/* ====== INIT ====== */
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(KEY_FILE)) fs.writeFileSync(KEY_FILE, "{}");
+
+/* ====== LOAD / SAVE ====== */
 function loadKeys() {
-  if (!fs.existsSync(KEY_FILE)) return {};
   return JSON.parse(fs.readFileSync(KEY_FILE, "utf8"));
 }
-function saveKeys(data) {
-  fs.writeFileSync(KEY_FILE, JSON.stringify(data, null, 2));
+function saveKeys(keys) {
+  fs.writeFileSync(KEY_FILE, JSON.stringify(keys, null, 2));
 }
 
-let keys = loadKeys();
-
-/* ================= ROOT ================= */
+/* ====== ROOT ====== */
 app.get("/", (req, res) => {
   res.send("✅ ADMIN KEY SERVER RUNNING");
 });
 
-/* ================= CREATE KEY (ADMIN) =================
-BODY:
-{
-  "key": "ABC123",        // optional
-  "type": "FREE" | "VIP",
-  "days": 7,
-  "device": "DEV-xxxx"
-}
-*/
+/* ====== CREATE KEY (ADMIN) ====== */
 app.post("/create", (req, res) => {
   const { key, type, days, device } = req.body;
 
-  if (!type || !days || !device) {
+  if (!type || device == null || days == null) {
     return res.json({ ok: false, msg: "Thiếu dữ liệu" });
   }
 
-  const k =
+  const keys = loadKeys();
+
+  const newKey =
     key ||
     "KEY-" + Math.random().toString(36).slice(2, 10).toUpperCase();
 
-  keys[k] = {
+  if (keys[newKey]) {
+    return res.json({ ok: false, msg: "Key đã tồn tại" });
+  }
+
+  const expire =
+    days == 0 ? 0 : Date.now() + days * 86400000;
+
+  keys[newKey] = {
     type,
     device,
-    expire: Date.now() + days * 86400000,
+    expire,
     created: Date.now()
   };
 
@@ -56,34 +61,27 @@ app.post("/create", (req, res) => {
 
   res.json({
     ok: true,
-    key: k,
+    key: newKey,
     type,
     device,
-    expire: keys[k].expire
+    expire
   });
 });
 
-/* ================= CHECK KEY (BOT) =================
-BODY:
-{
-  "key": "ABC123",
-  "device": "DEV-xxxx"
-}
-*/
+/* ====== CHECK KEY (BOT) ====== */
 app.post("/check", (req, res) => {
   const { key, device } = req.body;
+  const keys = loadKeys();
   const k = keys[key];
 
-  if (!k) {
-    return res.json({ ok: false, msg: "Key không tồn tại" });
-  }
+  if (!k) return res.json({ ok: false, msg: "Key không tồn tại" });
 
-  if (Date.now() > k.expire) {
-    return res.json({ ok: false, msg: "Key đã hết hạn" });
+  if (k.expire !== 0 && Date.now() > k.expire) {
+    return res.json({ ok: false, msg: "Key hết hạn" });
   }
 
   if (k.device !== device) {
-    return res.json({ ok: false, msg: "Key không đúng thiết bị" });
+    return res.json({ ok: false, msg: "Sai thiết bị" });
   }
 
   res.json({
@@ -93,23 +91,27 @@ app.post("/check", (req, res) => {
   });
 });
 
-/* ================= LIST KEYS (ADMIN) ================= */
+/* ====== LIST KEYS (ADMIN) ====== */
 app.get("/keys", (req, res) => {
-  res.json(keys);
+  res.json(loadKeys());
 });
 
-/* ================= DELETE KEY (ADMIN) ================= */
+/* ====== DELETE KEY ====== */
 app.post("/delete", (req, res) => {
   const { key } = req.body;
+  const keys = loadKeys();
+
   if (!keys[key]) {
     return res.json({ ok: false, msg: "Key không tồn tại" });
   }
+
   delete keys[key];
   saveKeys(keys);
+
   res.json({ ok: true });
 });
 
-/* ================= START ================= */
+/* ====== START ====== */
 app.listen(PORT, () => {
   console.log("✅ Server running on port", PORT);
 });
